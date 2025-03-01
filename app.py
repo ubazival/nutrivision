@@ -1,67 +1,65 @@
-from flask import Flask, request, jsonify
-import os
-import openai
-from dotenv import load_dotenv
-from flask_cors import CORS
-import logging
+import streamlit as st
+import requests
+from PIL import Image
 
-# Load API Key from .env file
-load_dotenv()
-API_KEY = os.getenv("OPENAI_API_KEY")
+# API Endpoint (Backend URL)
+API_URL = "http://127.0.0.1:5000/generate-plan"
 
-# Debugging: Print API key (Comment this after checking)
-if not API_KEY:
-    raise ValueError("❌ OPENAI_API_KEY not found. Check .env file!")
+# Streamlit UI Setup
+st.set_page_config(page_title="NutriVision", layout="wide")
 
-app = Flask(__name__)
-CORS(app)
+st.title("🌟 NutriVision - AI-Powered Fitness Planner")
+st.subheader("Achieve Your Dream Physique with AI")
 
-# Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Collect user details
+st.sidebar.header("👤 User Details")
+age = st.sidebar.number_input("Age", min_value=1, max_value=120, step=1)
+weight = st.sidebar.number_input("Weight (kg)", min_value=1, max_value=300, step=1)
+height = st.sidebar.number_input("Height (cm)", min_value=50, max_value=250, step=1)
+health_issues = st.sidebar.text_area("Health Issues (if any)", placeholder="E.g., diabetes, hypertension, none")
 
-@app.route('/generate-plan', methods=['POST'])
-def generate_plan():
-    """ Generate AI-powered diet & fitness plan """
-    data = request.json
-    user_details = data.get("user_details", {})
-    preferences = data.get("preferences", {})
+food_type = st.sidebar.selectbox("🍽 Food Preference", ["Vegetarian", "Non-Vegetarian", "Vegan"])
+halal = st.sidebar.radio("🥩 Do you prefer halal food?", ["Yes", "No"])
 
-    # Input validation
-    if not all(key in user_details for key in ['age', 'weight', 'height']):
-        return jsonify({"error": "Missing required user details"}), 400
+# Upload images
+st.sidebar.subheader("📸 Upload Your Images")
+current_image = st.sidebar.file_uploader("Upload your current body image", type=["png", "jpg", "jpeg"])
+desired_image = st.sidebar.file_uploader("Upload the body you want to achieve", type=["png", "jpg", "jpeg"])
 
-    prompt = f"""
-    User Profile:
-    - Age: {user_details.get('age')}
-    - Weight: {user_details.get('weight')} kg
-    - Height: {user_details.get('height')} cm
-    - Health Issues: {user_details.get('health_issues')}
-    - Food Type: {preferences.get('food_type')}
-    - Halal Preference: {preferences.get('halal')}
+st.sidebar.subheader("🚀 Ready?")
+if st.sidebar.button("Generate My AI Plan"):
+    if current_image and desired_image:
+        if current_image.size > 5 * 1024 * 1024 or desired_image.size > 5 * 1024 * 1024:
+            st.error("⚠ Image size should be less than 5MB.")
+        else:
+            user_details = {
+                "age": age,
+                "weight": weight,
+                "height": height,
+                "health_issues": health_issues,
+            }
+            preferences = {
+                "food_type": food_type,
+                "halal": halal,
+            }
 
-    Generate a **7-day AI-powered diet and fitness plan** based on this user.
-    """
+            with st.spinner("Generating your AI-powered plan..."):
+                response = requests.post(API_URL, json={"user_details": user_details, "preferences": preferences})
 
-    try:
-        # Using latest OpenAI API format
-        client = openai.OpenAI(api_key=API_KEY)  
+            if response.status_code == 200:
+                st.success("✅ Plan Generated Successfully!")
+                st.subheader("📋 Your AI-Generated 7-Day Plan:")
+                st.text(response.json().get("plan"))
 
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=500
-        )
+                # Show uploaded images
+                st.subheader("🖼 Uploaded Images")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(Image.open(current_image), caption="Current Body", width=250)
+                with col2:
+                    st.image(Image.open(desired_image), caption="Target Physique", width=250)
 
-        return jsonify({"plan": response.choices[0].message.content.strip()})
-
-    except openai.OpenAIError as e:
-        logger.error(f"OpenAI API Error: {str(e)}")
-        return jsonify({"error": f"OpenAI API Error: {str(e)}"}), 500
-
-    except Exception as e:
-        logger.error(f"Unexpected Error: {str(e)}")
-        return jsonify({"error": f"Unexpected Error: {str(e)}"}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+            else:
+                st.error(f"❌ Error: {response.json().get('error', 'Unknown error')}")
+    else:
+        st.error("⚠ Please upload both images to proceed.")
